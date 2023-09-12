@@ -1,9 +1,31 @@
 #!/bin/bash
 
+# ------------------------- FINDING UPTIME AND CPU USAGE --------------------------------
+# uptime will print off data about the CPU usage and the time the machine has been running
+# i pipe the information from uptime to awk and in order to parse the "Uptime" I change the
+# delimited to split the string at "up " and then pipe that into another awk command to parse
+# the uptime days and hours by setting the delimtiter to a comma and getting the first and
+# second entries. the double quotes let me "prettify" the outputs from awk with extra info
 
 
 uptime | awk -F"up " '{print $2}' | awk -F, '{print "Uptime: " $1 " &" $2 " hours"}'
 uptime | awk '{print "CPU Load Average: " $(NF-2) $(NF-1)  $NF}'
+
+# ---------------------------------------------------------------------------------------
+
+
+
+# ------------------------ PRINTING MEMORY INFORMATION ----------------------------------
+# here i use the if command to check the return status of calling command -v on the program
+# free and checking its existence on a system. i pipe all both stdout and stderr to /dev/null
+# so that the command is silent. if the return status shows existence then i call free and pipe
+# that information into awk to parse the stdout. i use '/Mem:/' to match lines that have that
+# text in it to find memory information regarding the RAM and i find print the fourth entry
+# which is the amount of free RAM available to the system. below that i use the same logic
+# to find the amount of used swap memory.(ELSE-BRANCH) if free is not a program that exists
+# on the system (such as FreeBSD) i'll instead pipe the stream from top into awk and use the
+# same logic to display the appropriate values
+
 
 if command -v free >/dev/null 2>&1;then
 	free | awk '/Mem:/ {print "Free Ram: " $4 " MB"}'
@@ -13,10 +35,25 @@ else
 	top | awk '/Swap:/ {print $0}' | awk -F, '{print "Swap Used: " $2}' 	
 fi
 
+# ---------------------------------------------------------------------------------------
+
+
+# ----------------------- INTERFACES AND INTERNET CONNECTIVITY --------------------------
+# here i also use an if-else statement to make my script portable across distributions
+# in particular, debian and rocky linux. i use the same logic as i did above to check the
+# return status of checking the version of ip on a system. if it exists, we'll proceed into
+# the first condition, otherwise we'll use ifconfig which is more universal. in the first
+# condition i used ip -br addr which prints the interface information in a more human-readable
+# format and use awk to print out the first and third entries of each line returned by the
+# initial call. (ELSE-BRANCH) if ip addr is not an available program on the machine, the call
+# to ifconfig will instead be piped into awk along with a match statement of '/inet /' which
+# corresponds to the interface name and address.
+# to check internet connectivity, i simply check the return status of a call to ping 8.8.8.8
+# with parameters specifying a 5 second timeout and 1 ISMP packet. if a packet is received
+# before the timeout period, the return status will let us proceed into the if-branch and
+# indicate successful connectivity and un-successful otherwise. 
 
 echo -e "\nInterface Address"
-
-
 
 if command -v ip >/dev/null 2>&1; then
 	ip -br addr | awk '{print $1 " " $3}'
@@ -24,15 +61,32 @@ elif command -v ifconfig >/dev/null 2>&1; then
 	ifconfig | awk '/inet / {print $1 " " $2}'
 fi
 
-
-
 if ping -c 1 -W 5 8.8.8.8 &> /dev/null; then
 	echo "Internet Connectivity: Yes"
 else
 	echo "Internet Connectivity: No"
 fi
 
+# ---------------------------------------------------------------------------------------
 
+
+# ---------------------- PRINTING USER INFORMATION --------------------------------------
+# here i first echo "\nUser Accounts" to create better formatting and i use the -e option
+# to make my print statements interpret the newline character correctly. to determine the
+# amount of users i use wc with the -l command to count the amount of lines in the file
+# /etc/passwd which holds the user accounts. i pipe that number into awk to make my print
+# statement. for finding the active users, i use grep to search through the same file for
+# lines that have the /bin/bash which is a shell that allows users to login interactively
+# and would indicate an active account. i pipe this into a call to wc -l to count how many
+# lines were returned and i pipe this value into awk to print it out. to find out the
+# number of users for each shell i input the /etc/passwd file into awk and set the delimiter
+# to be a colon so that each line will be parsed according to that. i then use the print
+# command with $NF to always print the last field entry for each line which corresponds to
+# the shell name and then for all of those shells, i pipe them into the call sort so that
+# they are all sorted alphabetically and allows me to call uniq -c on it and count the number
+# of entries for each unique shell name. since the total for each shell is preprended, when
+# i pass the repsonse into awk i first print the second entry (shell-name) followed by the
+# count for the shell $1.
 
 echo -e "\nUser Accounts"
 wc -l /etc/passwd | awk '{print "Total Users: " $1}'
@@ -43,9 +97,19 @@ grep "/bin/bash" /etc/passwd | wc -l | awk '{print "Active Users: " $1}'
 echo -e "\nShells          Users"
 awk -F: '{print $NF}' /etc/passwd | sort | uniq -c | awk '{print $2 "          " $1}'
 
+# ---------------------------------------------------------------------------------------
 
+
+# --------------------- PRINTING FILE TYPE AMOUNTS --------------------------------------
+# using the find command specify boot as the directory i want to search and i then use the
+# -type parameter followed by either d (directory), f (file), or l (symbolic link), to
+# return the instances of those file types. with each line that i'm returned based on the
+# file type that i specified, i pipe that information into wc -l to count the number of
+# entries for each and then pipe that into awk to print out the result nicely!
 
 echo -e "\nFilesystem /boot"
 find /boot -type d | wc -l | awk '{print "Number of directories in /boot: " $1}'
 find /boot -type f | wc -l | awk '{print "Number of files in /boot: " $1}'
 find /boot -type l | wc -l | awk '{print "Number of symbolic links in /boot: " $1}'
+
+# ---------------------------------------------------------------------------------------
