@@ -1,0 +1,132 @@
+#!/bin/bash
+
+# ---------------------- INITIALIZATION & INPUT VALIDATION --------------------------
+# This script checks the disk usage for the specified filesystems at regular intervals.
+# If the usage exceeds a given threshold, it sends out an email alert.
+#
+# User provides two arguments: the email address to send alerts to and the usage threshold percentage.
+# Example: ./diskcheck.sh root@localhost 75
+
+# Extract user provided inputs
+mailto=$1    # The email address to send alerts to
+full=$2      # The threshold disk usage percentage
+
+
+# Check if email and usage threshold are provided by using the z flag which detects any empty or null input fields
+if [ -z "$mailto" ] || [ -z "$full" ]; then
+  echo "Usage: $0 mailto full%"
+  exit 1
+fi
+
+# Validate that the threshold is a number
+# The brackets are the conditional syntax and we put out statement within it. Here we are testing if the full input matches the expression on the right side.
+# In particular, we are looking to see if the beginning of the string is composed of one or more digits. If it is then we get 1 and negate it with the bang
+# operator to skip the echo statement.
+elif [[ ! $full =~ ^[0-9]+ ]]; then
+  echo "The full% is not a number"
+  exit 1
+fi
+
+# Validate that the threshold is between 1 and 99
+# This check utilizes -lt and -gt which are operators
+# we can use to determine whether something is greater
+# than or less than something, in this case 1 and 99 respectively
+elif [ $full -lt 1 ] || [ $full -gt 99 ]; then
+  echo "full% must be 1 to 99"
+  exit 1
+fi
+
+# -------------------------- VARIABLE SETUP ------------------------------------------
+# The interval at which we check the disk usage
+interval=2
+
+# The interval at which we send out email alerts (if the usage exceeds threshold)
+mailint=10
+
+# List of filesystems to monitor
+fs=('/' '/boot' '/tmp')
+
+# Function to check the usage of a filesystem
+checksize ()
+{
+   # Using 'df' command to fetch the device name for the filesystem.
+   # we then pipe that into tail -l to give us the last line of the output and pipe into awk
+   # 'awk' extracts the device name from the output by selecting the first field $1
+   dev=`df $2 | tail -1 | awk '{print $1}'`
+   
+   # If the device name can't be determined, exit with an error message
+   # once again, the -z flag checks if the argument that follows is empty or null
+   if [ -z "$dev" ]; then
+      echo "Error determining disk usage for $2"
+      exit 1
+   fi
+   
+   # Check if this device is already in the list of checked devices
+   # devlist is an array that tracks checked devices to avoid redundancy.
+   # In the 'checksize' function, it ensures a device is not checked multiple times.
+   # If the device is in 'devlist,' the function returns early to save resources.
+   # This optimization enhances the efficiency of the disk usage monitoring script.
+
+   for d in ${devlist[*]}; do
+     if [ "$d" == "$dev" ]; then
+       return 1
+     fi
+   done
+   # Add the device to the list of checked devices
+   devlist+=$dev
+
+   # Using 'df' command to fetch the usage percentage for the filesystem.
+   # 'awk' extracts the usage from the output.
+   usage=`df $2 | tail -1 | awk '{print $5}'`
+   
+   # Check if the usage exceeds the specified threshold
+   if [ ${usage::-1} -gt $full ]; then
+      # Store the usage in the 'alert' array
+      alert[$1]=$usage
+      
+      # Check the time since the last email was sent for this filesystem
+      dt=$(( $now - ${last[$1]} ))
+      
+      # If the time since last email is greater than or equal to the email interval, mark for email alert
+      if [ $dt -ge $mailint ]; then 
+         mailit=1
+      fi
+   fi
+}
+
+# Initialize the time since last email for each filesystem to zero
+for i in ${!fs[@]}; do
+   last[$i]=0
+done
+
+# ----------------------------- MAIN LOOP ----------------------------------------------
+# Continuously monitor the filesystems
+while [ 1 ]; do
+   # Get the current timestamp
+   now=`date +%s`
+   # Reset the email flag and alert list for each iteration
+   mailit=
+   alert=()
+   devlist=()
+
+   # Check the usage for each filesystem in the list
+   for i in ${!fs[*]}; do
+      checksize $i ${fs[$i]}
+   done
+
+   # If the email flag is set, send out the email alert
+   if [ -n "$mailit" ]; then
+      echo "Mail sent " `date`
+      msg="Disk space warning $HOSTNAME"
+      for i in ${!alert[*]}; do
+         last[$i]=$now   # Update the time of last email for this filesystem
+         msg="$msg\n${fs[$i]} is ${alert[$i]} full"   # Append the usage info to the email message
+      done
+      # Send the email using the 'mail' command
+      echo -e "$msg" | mail -s "Disk Space Warning $HOSTNAME" $mailto
+   fi
+
+   # Wait for the specified interval before checking again
+   sleep $interval
+done
+

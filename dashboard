@@ -79,7 +79,9 @@ fi
 # lines that have the /bin/bash which is a shell that allows users to login interactively
 # and would indicate an active account. i pipe this into a call to wc -l to count how many
 # lines were returned and i pipe this value into awk to print it out. to find out the
-# number of users for each shell i input the /etc/passwd file into awk and set the delimiter
+# number of users for each shell except "nologin" i first do a call on grep
+# with -v to do an inverted match against "nologin" so that i can return all lines
+# without that shell specified passing in /etc/passwd as the file. i then pipe this into awk and set the delimiter
 # to be a colon so that each line will be parsed according to that. i then use the print
 # command with $NF to always print the last field entry for each line which corresponds to
 # the shell name and then for all of those shells, i pipe them into the call sort so that
@@ -95,7 +97,7 @@ grep "/bin/bash" /etc/passwd | wc -l | awk '{print "Active Users: " $1}'
 
 
 echo -e "\nShells          Users"
-awk -F: '{print $NF}' /etc/passwd | sort | uniq -c | awk '{print $2 "          " $1}'
+grep -v "nologin" /etc/passwd | awk -F: '{print $NF}' | sort | uniq -c | awk '{print $2 "          " $1}'
 
 # ---------------------------------------------------------------------------------------
 
